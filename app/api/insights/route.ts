@@ -8,12 +8,25 @@ import { generateInsights, analyzeIncident, generateSafetyTips } from '@/lib/gem
 // Add dynamic export to prevent caching
 export const dynamic = 'force-dynamic';
 
+// Maximum request size (in bytes)
+const MAX_REQUEST_SIZE = 1024 * 1024; // 1MB
+
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_GEMINI_API_KEY!);
 
 export async function POST(request: Request) {
   try {
     // Log the start of the request
     console.log('Insights API request started');
+
+    // Check request size
+    const contentLength = request.headers.get('content-length');
+    if (contentLength && parseInt(contentLength) > MAX_REQUEST_SIZE) {
+      console.error('Request too large:', contentLength, 'bytes');
+      return NextResponse.json(
+        { error: 'Request too large. Please reduce the number of incidents.' },
+        { status: 413 }
+      );
+    }
 
     // Verify API key is set
     if (!process.env.GOOGLE_GEMINI_API_KEY) {

@@ -11,6 +11,9 @@ console.log('Initializing Gemini API with key:', apiKey.substring(0, 5) + '...')
 const genAI = new GoogleGenerativeAI(apiKey);
 const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
 
+// Maximum number of incidents to process at once
+const MAX_INCIDENTS_PER_REQUEST = 1000;
+
 async function handleGeminiError(error: any) {
   console.error('Gemini API Error Details:', {
     message: error.message,
@@ -19,7 +22,7 @@ async function handleGeminiError(error: any) {
     response: error.response
   });
   
-  if (error.message?.includes('models/gemini-pro is not found')) {
+  if (error.message?.includes('models/gemini-2.0-flash is not found')) {
     throw new Error(
       'The Gemini API is not enabled for this project. Please enable it in the Google Cloud Console: ' +
       'Go to console.cloud.google.com > APIs & Services > Library > Search for "Gemini API" > Enable'
@@ -38,9 +41,21 @@ async function handleGeminiError(error: any) {
 export async function generateInsights(data: any) {
   try {
     console.log('Starting generateInsights with data length:', data.length);
+    
+    // If data is too large, sample it
+    let processedData = data;
+    if (data.length > MAX_INCIDENTS_PER_REQUEST) {
+      console.log(`Data too large (${data.length} incidents), sampling to ${MAX_INCIDENTS_PER_REQUEST} incidents`);
+      // Take a random sample of incidents
+      processedData = data
+        .sort(() => Math.random() - 0.5)
+        .slice(0, MAX_INCIDENTS_PER_REQUEST);
+    }
+
     // Prepare data for the prompt by extracting key information
     const summary = {
       totalIncidents: data.length,
+      sampledIncidents: processedData.length,
       categories: {} as Record<string, number>,
       locations: {} as Record<string, number>,
       timeRange: {
@@ -50,7 +65,7 @@ export async function generateInsights(data: any) {
     };
 
     // Calculate statistics
-    data.forEach((incident: any) => {
+    processedData.forEach((incident: any) => {
       // Count by category
       summary.categories[incident.category] = (summary.categories[incident.category] || 0) + 1;
       
@@ -73,10 +88,10 @@ export async function generateInsights(data: any) {
     You are analyzing data extracted from newspaper reports to provide valuable insights to government officials, IAS officers, and police departments. This data has already been collected and processed - your task is to analyze it and provide actionable insights, not to recommend changes to the data collection process.
 
     Data Summary:
-    - Total Incidents: ${summary.totalIncidents}
+    - Total Incidents: ${summary.totalIncidents} (Analyzing ${summary.sampledIncidents} incidents)
     - Time Range: ${summary.timeRange.start} to ${summary.timeRange.end}
     - Categories: ${Object.entries(summary.categories)
-      .map(([cat, count]) => `${cat}: ${count} (${Math.round(count/summary.totalIncidents*100)}%)`)
+      .map(([cat, count]) => `${cat}: ${count} (${Math.round(count/summary.sampledIncidents*100)}%)`)
       .join(', ')}
     - Top Locations: ${Object.entries(summary.locations)
       .sort(([,a], [,b]) => b - a)
