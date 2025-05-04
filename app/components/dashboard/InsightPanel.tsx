@@ -3,142 +3,157 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { CrimeIncident, DashboardFilters, InsightSummary } from '@/lib/types';
-import { LightBulbIcon, ArrowPathIcon, InformationCircleIcon } from '@heroicons/react/24/outline';
+import { LightBulbIcon, ArrowPathIcon, ExclamationTriangleIcon } from '@heroicons/react/24/outline';
 
 interface InsightPanelProps {
   incidents: CrimeIncident[];
   filters: DashboardFilters;
 }
 
-const MAX_PAYLOAD_SIZE_BYTES = 4.5 * 1024 * 1024; // Approx 4.5MB limit
+// Define a safe maximum payload size in bytes (e.g., 4MB)
+const MAX_PAYLOAD_SIZE_BYTES = 4 * 1024 * 1024; 
 
 export default function InsightPanel({ incidents, filters }: InsightPanelProps) {
   const [insights, setInsights] = useState<InsightSummary[]>([]);
   const [loading, setLoading] = useState(false);
-  const [isTruncated, setIsTruncated] = useState(false); // State for truncation message
-  const [processedCount, setProcessedCount] = useState(0); // State for number of incidents processed
+  const [isTruncated, setIsTruncated] = useState(false); // State to track if data was truncated
+  const [truncatedCount, setTruncatedCount] = useState(0); // State to store the count of truncated incidents
 
   useEffect(() => {
     const generateInsights = async () => {
       if (incidents.length === 0) {
         setInsights([]);
         setIsTruncated(false);
-        setProcessedCount(0);
         return;
       }
 
       setLoading(true);
       setIsTruncated(false); // Reset truncation state
-      setProcessedCount(0); // Reset count
+      let incidentsToSend = incidents;
 
       try {
-        // Optimize payload by sending only necessary fields
-        let optimizedIncidents = incidents.map(({
-          id,
-          newsType,
+        // Estimate payload size
+        const payload = { incidents, filters };
+        const jsonString = JSON.stringify(payload);
+        const payloadSizeBytes = new TextEncoder().encode(jsonString).length;
+
+        console.log(`Estimated payload size: ${(payloadSizeBytes / 1024 / 1024).toFixed(2)} MB`);
+
+        if (payloadSizeBytes > MAX_PAYLOAD_SIZE_BYTES) {
+          setIsTruncated(true);
+          // Estimate how many incidents fit (very rough approximation)
+          const avgIncidentSize = payloadSizeBytes / incidents.length;
+          const estimatedCount = Math.floor(MAX_PAYLOAD_SIZE_BYTES / avgIncidentSize * 0.9); // 90% factor for safety
+          
+          // Ensure we take at least one incident if possible
+          const countToSend = Math.max(1, estimatedCount); 
+          incidentsToSend = incidents.slice(0, countToSend);
+          setTruncatedCount(countToSend); // Store the count
+          console.warn(`Payload too large (${(payloadSizeBytes / 1024 / 1024).toFixed(2)} MB). Truncating incidents to ${countToSend}.`);
+        } else {
+          setTruncatedCount(incidents.length); // Not truncated, use full count
+        }
+
+        // Optimize payload by sending only necessary fields (as done previously)
+        const optimizedIncidents = incidentsToSend.map(({ 
+          id, 
+          newsType, 
           publishedDate,
-          latitude,
-          longitude
+          latitude, 
+          longitude 
         }) => ({
           id,
           newsType,
-          publishedDate,
+          date: publishedDate,
           latitude,
           longitude
         }));
 
-        let payload = { incidents: optimizedIncidents, filters };
-        let payloadString = JSON.stringify(payload);
-        let payloadSize = new TextEncoder().encode(payloadString).length;
+        const requestBody = JSON.stringify({
+          incidents: optimizedIncidents, // Send potentially truncated and optimized data
+          filters,
+        });
 
-        // Truncate if payload exceeds the limit
-        if (payloadSize > MAX_PAYLOAD_SIZE_BYTES) {
-          console.warn(`Payload size (${(payloadSize / 1024 / 1024).toFixed(2)}MB) exceeds limit. Truncating incidents.`);
-          setIsTruncated(true); // Set truncation flag
+        // Debug: Log final request body size
+        const finalPayloadSizeBytes = new TextEncoder().encode(requestBody).length;
+        console.log(`Final request payload size: ${(finalPayloadSizeBytes / 1024 / 1024).toFixed(2)} MB for ${incidentsToSend.length} incidents.`);
 
-          // Estimate average size per incident to quickly reduce size
-          const avgSizePerIncident = payloadSize / optimizedIncidents.length;
-          let targetIncidentCount = Math.floor(MAX_PAYLOAD_SIZE_BYTES / avgSizePerIncident);
-
-          // Reduce incidents and recalculate size until it fits
-          while (payloadSize > MAX_PAYLOAD_SIZE_BYTES && targetIncidentCount > 0) {
-            optimizedIncidents = optimizedIncidents.slice(0, targetIncidentCount);
-            payload = { incidents: optimizedIncidents, filters };
-            payloadString = JSON.stringify(payload);
-            payloadSize = new TextEncoder().encode(payloadString).length;
-            // Further reduce if still too large
-             if (payloadSize > MAX_PAYLOAD_SIZE_BYTES) {
-                targetIncidentCount = Math.floor(targetIncidentCount * 0.9); // Reduce by 10%
-             }
-          }
-          console.log(`Truncated to ${optimizedIncidents.length} incidents. Final size: ${(payloadSize / 1024 / 1024).toFixed(2)}MB`);
-        }
-
-        setProcessedCount(optimizedIncidents.length); // Set the actual count sent
-
-        // Check if any incidents remain after truncation
-        if (optimizedIncidents.length === 0) {
-             console.error("Payload limit too small, cannot process any incidents.");
-             throw new Error("Data too large to process even after truncation.");
-        }
 
         const response = await fetch('/api/insights', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
-          // Send the potentially truncated payload string
-          body: payloadString,
+          body: requestBody,
         });
 
         if (!response.ok) {
-          const errorData = await response.json().catch(() => ({ error: 'Failed to parse error response' }));
-          console.error('API Error:', response.status, errorData);
-          throw new Error(`API request failed: ${response.status} ${errorData.error || ''}`);
-        }
+           // Handle non-OK responses, including potential 400 from backend validation
+           const errorData = await response.json().catch(() => ({})); // Try parsing error JSON
+           const errorMessage = errorData.message || `HTTP error! status: ${response.status}`;
+           console.error('Error generating insights:', errorMessage);
+           setInsights([{
+             id: 'error',
+             title: 'Analysis Error',
+             description: errorMessage,
+             type: 'anomaly',
+             generatedAt: new Date(),
+           }]);
+           setLoading(false);
+           return; // Stop execution on error
+         }
 
         const data = await response.json();
-        // Assuming the API returns { insights: [...] }
-        setInsights(data.insights || data || []);
+        // Check if the backend returned insights or just a confirmation/empty object
+        if (data && data.insights) {
+            setInsights(data.insights);
+        } else {
+            // Handle cases where the backend might not return insights directly (e.g., different processing)
+            // If data itself contains the insights array directly:
+            setInsights(Array.isArray(data) ? data : []); 
+        }
 
       } catch (error) {
-        console.error('Error generating insights:', error);
+        console.error('Error in generateInsights fetch:', error);
         setInsights([{
-          id: 'error',
-          title: 'Analysis Error',
-          description: `Could not generate insights. ${error instanceof Error ? error.message : 'Please try again later or adjust filters.'}`,
+          id: 'fetch_error',
+          title: 'Network Error',
+          description: 'Could not fetch insights. Please check your connection and try again.',
           type: 'anomaly',
-          generatedAt: new Date()
+          generatedAt: new Date(),
         }]);
-      } finally {
-        setLoading(false);
       }
+      setLoading(false);
     };
 
     generateInsights();
-
-  }, [incidents, filters]); // Rerun when incidents or filters change
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [incidents, filters]); // Keep original dependencies
 
   return (
     <div className="bg-white rounded-lg shadow p-6">
-      <div className="flex items-center justify-between mb-4"> {/* Reduced bottom margin */}
+      <div className="flex items-center justify-between mb-6">
         <h2 className="text-xl font-semibold flex items-center">
           <LightBulbIcon className="h-6 w-6 text-yellow-500 mr-2" />
           AI Insights
         </h2>
-        {/* Refresh button removed as effect handles updates */}
+        <button
+          onClick={() => setInsights([])}
+          className="text-gray-400 hover:text-gray-600"
+          title="Refresh insights"
+        >
+          <ArrowPathIcon className="h-5 w-5" />
+        </button>
       </div>
 
-       {/* Truncation Info Message */}
-       {isTruncated && (
-         <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-md text-sm text-yellow-700 flex items-center">
-           <InformationCircleIcon className="h-5 w-5 mr-2 flex-shrink-0" />
-           <span>
-             Displaying insights for the first {processedCount.toLocaleString()} incidents due to data size limits. Apply more filters for a complete analysis.
-           </span>
-         </div>
-       )}
-
+      {/* Display truncation warning */}
+      {isTruncated && (
+        <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-md flex items-center text-sm text-yellow-700">
+          <ExclamationTriangleIcon className="h-5 w-5 mr-2 flex-shrink-0" />
+          <span>Showing insights for the first {truncatedCount} incidents due to data size limits. Apply more filters for a complete analysis.</span>
+        </div>
+      )}
+      
       {loading ? (
         <div className="space-y-4">
           {[1, 2, 3].map((i) => (
@@ -153,9 +168,9 @@ export default function InsightPanel({ incidents, filters }: InsightPanelProps) 
         </div>
       ) : (
         <div className="space-y-6">
-          {insights.map((insight, index) => (
+          {Array.isArray(insights) && insights.map((insight, index) => (
             <motion.div
-              key={insight.id}
+              key={insight.id || index}
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: index * 0.1 }}
@@ -181,7 +196,7 @@ export default function InsightPanel({ incidents, filters }: InsightPanelProps) 
             </motion.div>
           ))}
 
-          {insights.length === 0 && !loading && (
+          {(!Array.isArray(insights) || insights.length === 0) && !loading && (
             <div className="text-center text-gray-500">
               <p>No insights available for the current selection.</p>
             </div>
