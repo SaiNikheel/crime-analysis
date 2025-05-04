@@ -3,16 +3,23 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 // Initialize the Gemini API with your API key
 const apiKey = process.env.GOOGLE_GEMINI_API_KEY;
 if (!apiKey) {
+  console.error('GOOGLE_GEMINI_API_KEY is not set in environment variables');
   throw new Error('GOOGLE_GEMINI_API_KEY is not set in environment variables');
 }
 
+console.log('Initializing Gemini API with key:', apiKey.substring(0, 5) + '...');
 const genAI = new GoogleGenerativeAI(apiKey);
 const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
 
 async function handleGeminiError(error: any) {
-  console.error('Gemini API Error:', error);
+  console.error('Gemini API Error Details:', {
+    message: error.message,
+    name: error.name,
+    stack: error.stack,
+    response: error.response
+  });
   
-  if (error.message?.includes('models/gemini-2.0-flash is not found')) {
+  if (error.message?.includes('models/gemini-pro is not found')) {
     throw new Error(
       'The Gemini API is not enabled for this project. Please enable it in the Google Cloud Console: ' +
       'Go to console.cloud.google.com > APIs & Services > Library > Search for "Gemini API" > Enable'
@@ -30,6 +37,7 @@ async function handleGeminiError(error: any) {
 
 export async function generateInsights(data: any) {
   try {
+    console.log('Starting generateInsights with data length:', data.length);
     // Prepare data for the prompt by extracting key information
     const summary = {
       totalIncidents: data.length,

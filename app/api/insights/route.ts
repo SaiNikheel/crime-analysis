@@ -5,12 +5,26 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { CrimeIncident, DashboardFilters, InsightSummary } from '@/lib/types';
 import { generateInsights, analyzeIncident, generateSafetyTips } from '@/lib/gemini';
 
+// Add dynamic export to prevent caching
+export const dynamic = 'force-dynamic';
+
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_GEMINI_API_KEY!);
 
 export async function POST(request: Request) {
   try {
     // Log the start of the request
     console.log('Insights API request started');
+
+    // Verify API key is set
+    if (!process.env.GOOGLE_GEMINI_API_KEY) {
+      console.error('GOOGLE_GEMINI_API_KEY is not set');
+      return NextResponse.json(
+        { error: 'Server configuration error: Gemini API key is not set' },
+        { status: 500 }
+      );
+    }
+
+    console.log('API Key is set, length:', process.env.GOOGLE_GEMINI_API_KEY.length);
 
     const { incidents, type, incidentId } = await request.json();
     console.log(`Request type: ${type}, Number of incidents: ${incidents?.length || 0}`);
@@ -31,6 +45,7 @@ export async function POST(request: Request) {
     }));
 
     console.log('Processing request with type:', type);
+    console.log('First few incidents:', categorizedIncidents.slice(0, 2));
 
     try {
       switch (type) {
@@ -38,7 +53,7 @@ export async function POST(request: Request) {
           // Generate overall insights from all incidents
           console.log('Generating overview insights...');
           const insights = await generateInsights(categorizedIncidents);
-          console.log('Insights generated successfully');
+          console.log('Insights generated successfully:', JSON.stringify(insights, null, 2));
           return NextResponse.json({ insights });
 
         case 'incident':
