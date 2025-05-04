@@ -7,14 +7,6 @@ import { generateInsights, analyzeIncident, generateSafetyTips } from '@/lib/gem
 
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_GEMINI_API_KEY!);
 
-export const config = {
-  api: {
-    bodyParser: {
-      sizeLimit: '10mb', // Increase limit to 10MB (adjust as needed)
-    },
-  },
-};
-
 export async function POST(request: Request) {
   try {
     // Log the start of the request
