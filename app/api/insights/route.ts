@@ -5,39 +5,12 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { CrimeIncident, DashboardFilters, InsightSummary } from '@/lib/types';
 import { generateInsights, analyzeIncident, generateSafetyTips } from '@/lib/gemini';
 
-// Add dynamic export to prevent caching
-export const dynamic = 'force-dynamic';
-
-// Maximum request size (in bytes)
-const MAX_REQUEST_SIZE = 1024 * 1024; // 1MB
-
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_GEMINI_API_KEY!);
 
 export async function POST(request: Request) {
   try {
     // Log the start of the request
     console.log('Insights API request started');
-
-    // Check request size
-    const contentLength = request.headers.get('content-length');
-    if (contentLength && parseInt(contentLength) > MAX_REQUEST_SIZE) {
-      console.error('Request too large:', contentLength, 'bytes');
-      return NextResponse.json(
-        { error: 'Request too large. Please reduce the number of incidents.' },
-        { status: 413 }
-      );
-    }
-
-    // Verify API key is set
-    if (!process.env.GOOGLE_GEMINI_API_KEY) {
-      console.error('GOOGLE_GEMINI_API_KEY is not set');
-      return NextResponse.json(
-        { error: 'Server configuration error: Gemini API key is not set' },
-        { status: 500 }
-      );
-    }
-
-    console.log('API Key is set, length:', process.env.GOOGLE_GEMINI_API_KEY.length);
 
     const { incidents, type, incidentId } = await request.json();
     console.log(`Request type: ${type}, Number of incidents: ${incidents?.length || 0}`);
@@ -51,17 +24,13 @@ export async function POST(request: Request) {
       );
     }
 
-    // Prepare data for analysis by adding categories and extracting only essential fields
+    // Prepare data for analysis by adding categories
     const categorizedIncidents = incidents.map(incident => ({
-      id: incident.id,
-      newsType: incident.newsType,
-      category: categorizeCrimeType(incident.newsType),
-      location: incident.location,
-      publishedDate: incident.publishedDate
+      ...incident,
+      category: categorizeCrimeType(incident.newsType)
     }));
 
     console.log('Processing request with type:', type);
-    console.log('First few incidents:', categorizedIncidents.slice(0, 2));
 
     try {
       switch (type) {
@@ -69,7 +38,7 @@ export async function POST(request: Request) {
           // Generate overall insights from all incidents
           console.log('Generating overview insights...');
           const insights = await generateInsights(categorizedIncidents);
-          console.log('Insights generated successfully:', JSON.stringify(insights, null, 2));
+          console.log('Insights generated successfully');
           return NextResponse.json({ insights });
 
         case 'incident':

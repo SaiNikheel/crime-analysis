@@ -3,8 +3,6 @@
 import { signIn, useSession } from 'next-auth/react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useEffect, Suspense } from 'react';
-import { firestore } from '@/lib/firebase';
-import { doc, setDoc } from 'firebase/firestore';
 
 function SignInContent() {
   const { data: session, status } = useSession();
@@ -13,20 +11,10 @@ function SignInContent() {
   const callbackUrl = searchParams.get('callbackUrl') || '/dashboard';
 
   useEffect(() => {
-    if (status === 'authenticated' && session?.user?.email) {
-      // Save user info to Firestore
-      setDoc(doc(firestore, 'users', session.user.email), {
-        name: session.user.name,
-        email: session.user.email,
-        lastLogin: new Date(),
-      }, { merge: true })
-        .then(() => console.log('User saved to Firestore'))
-        .catch(error => console.error('Error saving user info:', error))
-        .finally(() => {
-          router.push(callbackUrl);
-        });
+    if (status === 'authenticated') {
+      router.push(callbackUrl);
     }
-  }, [status, callbackUrl, router, session]);
+  }, [status, callbackUrl, router]);
 
   const handleSignIn = async () => {
     try {
@@ -60,9 +48,6 @@ function SignInContent() {
           </h2>
           <p className="mt-2 text-center text-sm text-gray-600">
             Access the Real-time News Analysis Dashboard
-          </p>
-          <p className="mt-1 text-center text-xs text-gray-500">
-            Your email and full name will be securely saved in our database.
           </p>
         </div>
         <div className="mt-8 space-y-6">

@@ -3,24 +3,14 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 // Initialize the Gemini API with your API key
 const apiKey = process.env.GOOGLE_GEMINI_API_KEY;
 if (!apiKey) {
-  console.error('GOOGLE_GEMINI_API_KEY is not set in environment variables');
   throw new Error('GOOGLE_GEMINI_API_KEY is not set in environment variables');
 }
 
-console.log('Initializing Gemini API with key:', apiKey.substring(0, 5) + '...');
 const genAI = new GoogleGenerativeAI(apiKey);
 const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
 
-// Maximum number of incidents to process at once
-const MAX_INCIDENTS_PER_REQUEST = 1000;
-
 async function handleGeminiError(error: any) {
-  console.error('Gemini API Error Details:', {
-    message: error.message,
-    name: error.name,
-    stack: error.stack,
-    response: error.response
-  });
+  console.error('Gemini API Error:', error);
   
   if (error.message?.includes('models/gemini-2.0-flash is not found')) {
     throw new Error(
@@ -40,30 +30,9 @@ async function handleGeminiError(error: any) {
 
 export async function generateInsights(data: any) {
   try {
-    console.log('Starting generateInsights with data length:', data.length);
-    
-    // Extract only essential data for analysis
-    const essentialData = data.map((incident: any) => ({
-      newsType: incident.newsType,
-      category: incident.category,
-      location: incident.location,
-      publishedDate: incident.publishedDate
-    }));
-
-    // If data is too large, sample it
-    let processedData = essentialData;
-    if (essentialData.length > MAX_INCIDENTS_PER_REQUEST) {
-      console.log(`Data too large (${essentialData.length} incidents), sampling to ${MAX_INCIDENTS_PER_REQUEST} incidents`);
-      // Take a random sample of incidents
-      processedData = essentialData
-        .sort(() => Math.random() - 0.5)
-        .slice(0, MAX_INCIDENTS_PER_REQUEST);
-    }
-
     // Prepare data for the prompt by extracting key information
     const summary = {
       totalIncidents: data.length,
-      sampledIncidents: processedData.length,
       categories: {} as Record<string, number>,
       locations: {} as Record<string, number>,
       timeRange: {
@@ -73,7 +42,7 @@ export async function generateInsights(data: any) {
     };
 
     // Calculate statistics
-    processedData.forEach((incident: any) => {
+    data.forEach((incident: any) => {
       // Count by category
       summary.categories[incident.category] = (summary.categories[incident.category] || 0) + 1;
       
@@ -96,10 +65,10 @@ export async function generateInsights(data: any) {
     You are analyzing data extracted from newspaper reports to provide valuable insights to government officials, IAS officers, and police departments. This data has already been collected and processed - your task is to analyze it and provide actionable insights, not to recommend changes to the data collection process.
 
     Data Summary:
-    - Total Incidents: ${summary.totalIncidents} (Analyzing ${summary.sampledIncidents} incidents)
+    - Total Incidents: ${summary.totalIncidents}
     - Time Range: ${summary.timeRange.start} to ${summary.timeRange.end}
     - Categories: ${Object.entries(summary.categories)
-      .map(([cat, count]) => `${cat}: ${count} (${Math.round(count/summary.sampledIncidents*100)}%)`)
+      .map(([cat, count]) => `${cat}: ${count} (${Math.round(count/summary.totalIncidents*100)}%)`)
       .join(', ')}
     - Top Locations: ${Object.entries(summary.locations)
       .sort(([,a], [,b]) => b - a)

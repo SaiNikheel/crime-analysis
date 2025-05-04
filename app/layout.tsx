@@ -14,6 +14,9 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className="h-full bg-gray-100">
+      <head>
+        <link rel="icon" href="/logo.png" />
+      </head>
       <body className={`${inter.className} h-full`}>
         <SessionProvider>
           <div className="min-h-full">
