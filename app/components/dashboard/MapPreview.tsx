@@ -18,13 +18,10 @@ const mapContainerStyle = {
   height: '300px',
 };
 
-const defaultCenter = {
-  lat: 0,
-  lng: 0,
-};
+const defaultCenter: [number, number] = [0, 0];
 
 export default function MapPreview({ incidents }: MapPreviewProps) {
-  const [center, setCenter] = useState(defaultCenter);
+  const [center, setCenter] = useState<[number, number]>(defaultCenter);
 
   useEffect(() => {
     if (incidents.length > 0) {
@@ -33,7 +30,7 @@ export default function MapPreview({ incidents }: MapPreviewProps) {
         incidents.reduce((sum, inc) => sum + inc.latitude, 0) / incidents.length;
       const avgLng =
         incidents.reduce((sum, inc) => sum + inc.longitude, 0) / incidents.length;
-      setCenter({ lat: avgLat, lng: avgLng });
+      setCenter([avgLat, avgLng]);
     }
   }, [incidents]);
 

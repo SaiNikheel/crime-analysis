@@ -4,6 +4,8 @@ import path from 'path';
 import { parse } from 'csv-parse/sync';
 import { CrimeIncident } from '@/lib/types';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(request: Request) {
   try {
     // Get filter parameters from URL
