@@ -3,123 +3,141 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { CrimeIncident, DashboardFilters, InsightSummary } from '@/lib/types';
-import { LightBulbIcon, ArrowPathIcon, ExclamationTriangleIcon } from '@heroicons/react/24/outline';
+import { LightBulbIcon, ArrowPathIcon, InformationCircleIcon } from '@heroicons/react/24/outline';
 
 interface InsightPanelProps {
   incidents: CrimeIncident[];
   filters: DashboardFilters;
 }
 
+const MAX_PAYLOAD_SIZE_BYTES = 4.5 * 1024 * 1024; // Approx 4.5MB limit
+
 export default function InsightPanel({ incidents, filters }: InsightPanelProps) {
   const [insights, setInsights] = useState<InsightSummary[]>([]);
   const [loading, setLoading] = useState(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isTruncated, setIsTruncated] = useState(false); // State for truncation message
+  const [processedCount, setProcessedCount] = useState(0); // State for number of incidents processed
 
   useEffect(() => {
     const generateInsights = async () => {
       if (incidents.length === 0) {
         setInsights([]);
-        setErrorMessage(null);
+        setIsTruncated(false);
+        setProcessedCount(0);
         return;
       }
 
       setLoading(true);
-      setErrorMessage(null);
-      try {
-        const optimizedIncidents = incidents.map(
-          ({
-            id,
-            title,
-            publishedDate,
-            newsType,
-            location,
-            keywords,
-            description,
-          }) => ({
-            id,
-            title,
-            publishedDate,
-            newsType,
-            location,
-            keywords,
-            description,
-          })
-        );
+      setIsTruncated(false); // Reset truncation state
+      setProcessedCount(0); // Reset count
 
-        console.log(`Fetching insights for ${optimizedIncidents.length} incidents (optimized payload)`);
+      try {
+        // Optimize payload by sending only necessary fields
+        let optimizedIncidents = incidents.map(({
+          id,
+          newsType,
+          publishedDate,
+          latitude,
+          longitude
+        }) => ({
+          id,
+          newsType,
+          publishedDate,
+          latitude,
+          longitude
+        }));
+
+        let payload = { incidents: optimizedIncidents, filters };
+        let payloadString = JSON.stringify(payload);
+        let payloadSize = new TextEncoder().encode(payloadString).length;
+
+        // Truncate if payload exceeds the limit
+        if (payloadSize > MAX_PAYLOAD_SIZE_BYTES) {
+          console.warn(`Payload size (${(payloadSize / 1024 / 1024).toFixed(2)}MB) exceeds limit. Truncating incidents.`);
+          setIsTruncated(true); // Set truncation flag
+
+          // Estimate average size per incident to quickly reduce size
+          const avgSizePerIncident = payloadSize / optimizedIncidents.length;
+          let targetIncidentCount = Math.floor(MAX_PAYLOAD_SIZE_BYTES / avgSizePerIncident);
+
+          // Reduce incidents and recalculate size until it fits
+          while (payloadSize > MAX_PAYLOAD_SIZE_BYTES && targetIncidentCount > 0) {
+            optimizedIncidents = optimizedIncidents.slice(0, targetIncidentCount);
+            payload = { incidents: optimizedIncidents, filters };
+            payloadString = JSON.stringify(payload);
+            payloadSize = new TextEncoder().encode(payloadString).length;
+            // Further reduce if still too large
+             if (payloadSize > MAX_PAYLOAD_SIZE_BYTES) {
+                targetIncidentCount = Math.floor(targetIncidentCount * 0.9); // Reduce by 10%
+             }
+          }
+          console.log(`Truncated to ${optimizedIncidents.length} incidents. Final size: ${(payloadSize / 1024 / 1024).toFixed(2)}MB`);
+        }
+
+        setProcessedCount(optimizedIncidents.length); // Set the actual count sent
+
+        // Check if any incidents remain after truncation
+        if (optimizedIncidents.length === 0) {
+             console.error("Payload limit too small, cannot process any incidents.");
+             throw new Error("Data too large to process even after truncation.");
+        }
 
         const response = await fetch('/api/insights', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({
-            incidents: optimizedIncidents,
-            filters,
-            type: 'overview',
-          }),
+          // Send the potentially truncated payload string
+          body: payloadString,
         });
 
         if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}));
-          const message = errorData.message || `API request failed with status ${response.status}`;
+          const errorData = await response.json().catch(() => ({ error: 'Failed to parse error response' }));
           console.error('API Error:', response.status, errorData);
-          throw new Error(message);
+          throw new Error(`API request failed: ${response.status} ${errorData.error || ''}`);
         }
 
         const data = await response.json();
-        if (data && Array.isArray(data.insights)) {
-          setInsights(data.insights);
-        } else {
-          console.warn('Unexpected API response structure:', data);
-          setInsights([]);
-        }
+        // Assuming the API returns { insights: [...] }
+        setInsights(data.insights || data || []);
 
       } catch (error) {
         console.error('Error generating insights:', error);
-        setErrorMessage(error instanceof Error ? error.message : 'An unknown error occurred.');
-        setInsights([]);
+        setInsights([{
+          id: 'error',
+          title: 'Analysis Error',
+          description: `Could not generate insights. ${error instanceof Error ? error.message : 'Please try again later or adjust filters.'}`,
+          type: 'anomaly',
+          generatedAt: new Date()
+        }]);
       } finally {
         setLoading(false);
       }
     };
 
     generateInsights();
-  }, [incidents, filters]);
 
-  const refreshInsights = () => {
-    setInsights([]);
-    setErrorMessage(null);
-    setLoading(true);
-    const generateInsightsEffect = async () => {
-      setLoading(false);
-    };
-    generateInsightsEffect();
-  };
+  }, [incidents, filters]); // Rerun when incidents or filters change
 
   return (
     <div className="bg-white rounded-lg shadow p-6">
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-4"> {/* Reduced bottom margin */}
         <h2 className="text-xl font-semibold flex items-center">
           <LightBulbIcon className="h-6 w-6 text-yellow-500 mr-2" />
           AI Insights
         </h2>
-        <button
-          onClick={refreshInsights}
-          className="text-gray-400 hover:text-gray-600"
-          title="Refresh insights"
-          disabled={loading}
-        >
-          <ArrowPathIcon className="h-5 w-5" />
-        </button>
+        {/* Refresh button removed as effect handles updates */}
       </div>
 
-      {errorMessage && (
-        <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-md flex items-start">
-          <ExclamationTriangleIcon className="h-5 w-5 text-red-400 mr-2 flex-shrink-0" />
-          <p className="text-sm">{errorMessage}</p>
-        </div>
-      )}
+       {/* Truncation Info Message */}
+       {isTruncated && (
+         <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-md text-sm text-yellow-700 flex items-center">
+           <InformationCircleIcon className="h-5 w-5 mr-2 flex-shrink-0" />
+           <span>
+             Displaying insights for the first {processedCount.toLocaleString()} incidents due to data size limits. Apply more filters for a complete analysis.
+           </span>
+         </div>
+       )}
 
       {loading ? (
         <div className="space-y-4">
@@ -135,39 +153,38 @@ export default function InsightPanel({ incidents, filters }: InsightPanelProps) 
         </div>
       ) : (
         <div className="space-y-6">
-          {insights.length > 0 ? (
-            insights.map((insight, index) => (
-              <motion.div
-                key={insight.id}
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: index * 0.1 }}
-                className="border-b border-gray-200 pb-4 last:border-b-0"
-              >
-                <h3 className="font-medium text-gray-900 mb-2">{insight.title}</h3>
-                <p className="text-gray-600 text-sm">{insight.description}</p>
-                {insight.data && (
-                  <div className="mt-2 text-sm text-gray-500">
-                    {insight.type === 'hotspot' && (
-                      <ul className="list-disc list-inside">
-                        {insight.data.locations.map((loc: string, i: number) => (
-                          <li key={i}>{loc}</li>
-                        ))}
-                      </ul>
-                    )}
-                    {insight.type === 'trend' && (
-                      <p className="italic">{insight.data.trendDescription}</p>
-                    )}
-                  </div>
-                )}
-              </motion.div>
-            ))
-          ) : (
-            !errorMessage && (
-              <div className="text-center text-gray-500">
-                <p>No insights available for the current selection.</p>
-              </div>
-            )
+          {insights.map((insight, index) => (
+            <motion.div
+              key={insight.id}
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: index * 0.1 }}
+              className="border-b border-gray-200 pb-4 last:border-b-0"
+            >
+              <h3 className="font-medium text-gray-900 mb-2">{insight.title}</h3>
+              <p className="text-gray-600 text-sm">{insight.description}</p>
+              {insight.data && (
+                <div className="mt-2 text-sm text-gray-500">
+                  {/* Render additional insight data based on type */}
+                  {insight.type === 'hotspot' && (
+                    <ul className="list-disc list-inside">
+                      {insight.data.locations.map((loc: string, i: number) => (
+                        <li key={i}>{loc}</li>
+                      ))}
+                    </ul>
+                  )}
+                  {insight.type === 'trend' && (
+                    <p className="italic">{insight.data.trendDescription}</p>
+                  )}
+                </div>
+              )}
+            </motion.div>
+          ))}
+
+          {insights.length === 0 && !loading && (
+            <div className="text-center text-gray-500">
+              <p>No insights available for the current selection.</p>
+            </div>
           )}
         </div>
       )}
