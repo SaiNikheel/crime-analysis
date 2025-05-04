@@ -4,15 +4,20 @@ import { authOptions } from '../auth/config';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { CrimeIncident, DashboardFilters, InsightSummary } from '@/lib/types';
 import { generateInsights, analyzeIncident, generateSafetyTips } from '@/lib/gemini';
+import fs from 'fs/promises';
+import path from 'path';
+import { parse } from 'csv-parse/sync';
+import { stringify } from 'csv-stringify/sync';
 
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_GEMINI_API_KEY!);
+const INSIGHTS_CACHE_PATH = path.join(process.cwd(), 'insights.csv');
 
 export async function POST(request: Request) {
   try {
     // Log the start of the request
     console.log('Insights API request started');
 
-    const { incidents, type, incidentId } = await request.json();
+    const { incidents, type, incidentId, filters } = await request.json();
     console.log(`Request type: ${type}, Number of incidents: ${incidents?.length || 0}`);
 
     // Validate request
@@ -37,9 +42,41 @@ export async function POST(request: Request) {
         case 'overview':
           // Generate overall insights from all incidents
           console.log('Generating overview insights...');
-          const insights = await generateInsights(categorizedIncidents);
-          console.log('Insights generated successfully');
-          return NextResponse.json({ insights });
+          const freshInsightsResult = await generateInsights(categorizedIncidents);
+          
+          // Check if the result is actually an array of strings
+          if (!Array.isArray(freshInsightsResult) || freshInsightsResult.some(item => typeof item !== 'string')) {
+              // Handle cases where Gemini might have failed or returned unexpected format
+              console.error('Gemini did not return expected string array:', freshInsightsResult);
+              throw new Error('Failed to generate insights in the expected format.');
+          }
+          
+          const freshInsights: string[] = freshInsightsResult; // Now we know it's string[]
+          console.log('Insights generated successfully via API.');
+
+          // --- Cache the successful result (as raw strings) ---
+          try {
+            const csvHeaders = ['section_index', 'content'];
+            const csvData = freshInsights.map((content, index) => [
+              index, // Store the index to maintain order
+              content
+            ]);
+            
+            if (csvData.length > 0) {
+                const csvString = stringify([csvHeaders, ...csvData]);
+                await fs.writeFile(INSIGHTS_CACHE_PATH, csvString);
+                console.log('Successfully cached insights (as strings) to', INSIGHTS_CACHE_PATH);
+            } else {
+                console.warn('No insights strings generated to cache.');
+            }
+          } catch (cacheError) {
+            console.error('Failed to cache insights:', cacheError);
+            // Don't fail the request if caching fails
+          }
+          // --- End Caching ---
+
+          // Return the string array
+          return NextResponse.json({ insights: freshInsights });
 
         case 'incident':
           // Analyze a specific incident

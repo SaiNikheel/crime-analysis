@@ -31,4 +31,10 @@ yarn-error.log*
 
 # typescript
 *.tsbuildinfo
-next-env.d.ts 
+next-env.d.ts
+
+# Cache
+.next
+
+# Local Cache Files
+insights.csv 
