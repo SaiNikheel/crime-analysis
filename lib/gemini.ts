@@ -42,12 +42,20 @@ export async function generateInsights(data: any) {
   try {
     console.log('Starting generateInsights with data length:', data.length);
     
+    // Extract only essential data for analysis
+    const essentialData = data.map((incident: any) => ({
+      newsType: incident.newsType,
+      category: incident.category,
+      location: incident.location,
+      publishedDate: incident.publishedDate
+    }));
+
     // If data is too large, sample it
-    let processedData = data;
-    if (data.length > MAX_INCIDENTS_PER_REQUEST) {
-      console.log(`Data too large (${data.length} incidents), sampling to ${MAX_INCIDENTS_PER_REQUEST} incidents`);
+    let processedData = essentialData;
+    if (essentialData.length > MAX_INCIDENTS_PER_REQUEST) {
+      console.log(`Data too large (${essentialData.length} incidents), sampling to ${MAX_INCIDENTS_PER_REQUEST} incidents`);
       // Take a random sample of incidents
-      processedData = data
+      processedData = essentialData
         .sort(() => Math.random() - 0.5)
         .slice(0, MAX_INCIDENTS_PER_REQUEST);
     }

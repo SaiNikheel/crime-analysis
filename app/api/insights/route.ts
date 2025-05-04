@@ -51,10 +51,13 @@ export async function POST(request: Request) {
       );
     }
 
-    // Prepare data for analysis by adding categories
+    // Prepare data for analysis by adding categories and extracting only essential fields
     const categorizedIncidents = incidents.map(incident => ({
-      ...incident,
-      category: categorizeCrimeType(incident.newsType)
+      id: incident.id,
+      newsType: incident.newsType,
+      category: categorizeCrimeType(incident.newsType),
+      location: incident.location,
+      publishedDate: incident.publishedDate
     }));
 
     console.log('Processing request with type:', type);
