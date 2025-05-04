@@ -33,8 +33,5 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# Cache
-.next
-
-# Local Cache Files
+# Generated files
 insights.csv 
