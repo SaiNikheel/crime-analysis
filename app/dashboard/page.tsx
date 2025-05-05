@@ -394,19 +394,23 @@ export default function DashboardPage() {
         </motion.div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.3 }} className="lg:col-span-2">
-          <MapPreview incidents={recentIncidents} />
-        </motion.div>
-        <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.4 }} className="lg:col-span-2">
-          {filters ? (
-            <InsightPanel incidents={recentIncidents} filters={filters} />
-          ) : (
-            <div className="bg-white rounded-lg shadow p-6 text-center text-gray-500">
-               Select filters to generate insights.
-            </div>
-          )}
-        </motion.div>
+      {/* Map Preview and AI Insights Side-by-Side */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-8">
+         {/* Map Preview - Occupies 2 columns on large screens */}
+         <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.3 }} className="lg:col-span-2">
+            <MapPreview incidents={recentIncidents} />
+         </motion.div>
+
+         {/* AI Insights Panel - Occupies 1 column on large screens */}
+         <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.4 }} className="lg:col-span-1">
+            {filters ? (
+              <InsightPanel incidents={recentIncidents} filters={filters} />
+            ) : (
+              <div className="bg-white rounded-lg shadow p-6 text-center text-gray-500">
+                 Select filters to generate insights.
+              </div>
+            )}
+         </motion.div>
       </div>
     </div>
   );
