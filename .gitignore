@@ -31,7 +31,4 @@ yarn-error.log*
 
 # typescript
 *.tsbuildinfo
-next-env.d.ts
-
-# Generated files
-insights.csv 
+next-env.d.ts 

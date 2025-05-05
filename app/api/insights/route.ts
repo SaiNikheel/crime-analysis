@@ -44,10 +44,12 @@ export async function POST(request: Request) {
           }
 
           // Process each chunk and combine results
-          const allInsights = [];
+          const allInsights: string[][] = [];
           for (const chunk of chunks) {
             const chunkInsights = await generateInsights(chunk);
-            allInsights.push(chunkInsights);
+            if (Array.isArray(chunkInsights)) {
+              allInsights.push(chunkInsights);
+            }
           }
 
           // Combine insights from all chunks
@@ -171,9 +173,16 @@ function mergeInsightCategory(existing: string, newInsight: string): string {
   // Split into lines and remove duplicates
   const existingLines = existing.split('\n').filter(Boolean);
   const newLines = newInsight.split('\n').filter(Boolean);
-  const mergedLines = [...new Set([...existingLines, ...newLines])];
   
-  return mergedLines.join('\n');
+  // Use object keys to remove duplicates (compatible with older JS versions)
+  const uniqueLines = Object.keys(
+    [...existingLines, ...newLines].reduce((acc, line) => {
+      acc[line] = true;
+      return acc;
+    }, {} as Record<string, boolean>)
+  );
+  
+  return uniqueLines.join('\n');
 }
 
 // Helper function to categorize news types

@@ -6,8 +6,9 @@ if (!apiKey) {
   throw new Error('GOOGLE_GEMINI_API_KEY is not set in environment variables');
 }
 
-const genAI = new GoogleGenerativeAI(apiKey);
-const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+// Export the genAI instance and model
+export const genAI = new GoogleGenerativeAI(apiKey);
+export const model = genAI.getGenerativeModel({ model: 'gemini-pro' });
 
 async function handleGeminiError(error: any) {
   console.error('Gemini API Error:', error);
