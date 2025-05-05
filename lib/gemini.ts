@@ -6,9 +6,8 @@ if (!apiKey) {
   throw new Error('GOOGLE_GEMINI_API_KEY is not set in environment variables');
 }
 
-// Export the genAI instance and model
-export const genAI = new GoogleGenerativeAI(apiKey);
-export const model = genAI.getGenerativeModel({ model: 'gemini-pro' });
+const genAI = new GoogleGenerativeAI(apiKey);
+const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
 
 async function handleGeminiError(error: any) {
   console.error('Gemini API Error:', error);
@@ -81,43 +80,40 @@ export async function generateInsights(data: any) {
 
     {
       "keyPatterns": [
-        "-> [5-7 word observation] [specific data point]",
-        "-> [5-7 word observation] [specific data point]",
-        "-> [5-7 word observation] [specific data point]"
+        "Clear, direct statement about the most significant trend or pattern",
+        "Second most important pattern or trend observation",
+        "Third key pattern that officials should be aware of"
       ],
       "riskAreas": [
-        "-> [location/area] [specific risk] [data evidence]",
-        "-> [location/area] [specific risk] [data evidence]",
-        "-> [location/area] [specific risk] [data evidence]"
+        "Most critical risk area requiring immediate attention",
+        "Second priority risk area or emerging concern",
+        "Third significant risk that needs monitoring"
       ],
       "recommendations": [
-        "-> [specific action] [target area/group] [expected impact]",
-        "-> [specific action] [target area/group] [expected impact]",
-        "-> [specific action] [target area/group] [expected impact]"
+        "Direct, actionable step that officials can take immediately",
+        "Second priority action item for implementation",
+        "Third recommended action for addressing identified issues"
       ],
       "communityImpact": [
-        "-> [specific impact] [affected group] [data evidence]",
-        "-> [specific impact] [affected group] [data evidence]",
-        "-> [specific impact] [affected group] [data evidence]"
+        "Primary way these incidents affect the community",
+        "Secondary community impact or concern",
+        "Third most significant effect on community well-being"
       ]
     }
 
     Guidelines for each insight:
-    - Start each point with "->"
-    - Keep each point under 15 words
-    - Include specific data points or numbers
-    - Focus on patterns visible in the data
-    - Avoid general statements without data support
-    - Do not suggest data collection improvements
-    - Do not use phrases like "need to" or "should be"
-    - Make each point stand alone (no references to other points)
+    - Start with the most important information
+    - Use clear, direct language
+    - Keep each point to 10-15 words maximum
+    - Focus on actionable information
+    - Avoid using phrases like "need to" or "should be"
+    - Make each point stand alone (don't use "also" or reference other points)
 
     Important Notes:
+    - Focus on insights officials can act on immediately
     - Base all insights strictly on the provided data
-    - Focus on patterns and trends visible in the data
-    - Include specific numbers or percentages where available
+    - Don't suggest changes to data collection or reporting
     - Avoid general or vague statements
-    - Do not suggest changes to data collection or reporting
     
     Make sure to only output the JSON format above with no additional text or markdown.`;
 

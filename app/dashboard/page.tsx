@@ -16,7 +16,7 @@ import {
   Tooltip,
   Legend,
 } from 'chart.js';
-import { CrimeIncident } from '@/lib/types';
+import { CrimeIncident, DashboardFilters } from '@/lib/types';
 import OverviewCard from '@/components/dashboard/OverviewCard';
 import InsightPanel from '@/components/dashboard/InsightPanel';
 import MapPreview from '@/components/dashboard/MapPreview';
@@ -41,6 +41,7 @@ export default function DashboardPage() {
   const [incidents, setIncidents] = useState<CrimeIncident[]>([]);
   const [loading, setLoading] = useState(true);
   const [timeframe, setTimeframe] = useState<'week'|'month'|'year'>('month');
+  const [filters, setFilters] = useState<DashboardFilters | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -59,24 +60,52 @@ export default function DashboardPage() {
     fetchData();
   }, []);
 
-  // Get recent incidents based on timeframe
-  const getRecentIncidents = () => {
+  // Update filters whenever timeframe or incidents change
+  useEffect(() => {
     const now = new Date();
-    let cutoff = new Date();
-    
+    let start = new Date();
+    const end = new Date(now); // End date is always now
+
     switch(timeframe) {
       case 'week':
-        cutoff.setDate(now.getDate() - 7);
+        start.setDate(now.getDate() - 7);
         break;
       case 'month':
-        cutoff.setMonth(now.getMonth() - 1);
+        start.setMonth(now.getMonth() - 1);
         break;
       case 'year':
-        cutoff.setFullYear(now.getFullYear() - 1);
+        start.setFullYear(now.getFullYear() - 1);
         break;
     }
-    
-    return incidents.filter(incident => new Date(incident.publishedDate) >= cutoff);
+
+    // Set the filters state (add crimeType later if needed)
+    setFilters({
+      dateRange: [start, end],
+      // crimeType: undefined // Initialize if you add crime type filter
+    });
+
+  }, [timeframe, incidents]); // Depend on timeframe and incidents (to ensure it runs after data loads)
+
+  // Get recent incidents based on timeframe
+  const getRecentIncidents = () => {
+    if (!filters || !filters.dateRange) return []; // Guard clause
+    const [start, end] = filters.dateRange;
+
+    // Ensure start and end are valid dates before filtering
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+        console.warn("Invalid date range in filters");
+        return [];
+    }
+
+    return incidents.filter(incident => {
+        try {
+            const incidentDate = new Date(incident.publishedDate);
+            return !isNaN(incidentDate.getTime()) && incidentDate >= start && incidentDate <= end;
+        } catch (e) {
+            console.warn(`Failed to parse date for incident ${incident.id}: ${incident.publishedDate}`);
+            return false;
+        }
+    });
   };
 
   const recentIncidents = getRecentIncidents();
@@ -366,12 +395,18 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2">
-          <MapPreview incidents={incidents} />
-        </div>
-        <div>
-          <InsightPanel incidents={incidents} />
-        </div>
+        <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.3 }} className="lg:col-span-2">
+          <MapPreview incidents={recentIncidents} />
+        </motion.div>
+        <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.4 }} className="lg:col-span-2">
+          {filters ? (
+            <InsightPanel incidents={recentIncidents} filters={filters} />
+          ) : (
+            <div className="bg-white rounded-lg shadow p-6 text-center text-gray-500">
+               Select filters to generate insights.
+            </div>
+          )}
+        </motion.div>
       </div>
     </div>
   );

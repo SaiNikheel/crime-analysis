@@ -3,100 +3,88 @@ import { getServerSession } from 'next-auth/next';
 import { authOptions } from '../auth/config';
 import { CrimeIncident, DashboardFilters, InsightSummary } from '@/lib/types';
 import { generateInsights, analyzeIncident, generateSafetyTips } from '@/lib/gemini';
-
-// Maximum number of incidents to process at once
-const MAX_INCIDENTS_PER_CHUNK = 1000;
+import { getFilteredIncidents } from '@/lib/data';
 
 export async function POST(request: Request) {
   try {
     // Log the start of the request
     console.log('Insights API request started');
 
-    const { incidents, type, incidentId } = await request.json();
-    console.log(`Request type: ${type}, Number of incidents: ${incidents?.length || 0}`);
+    // Expect filters, type, and optional incidentId in the request body
+    const { filters, type, incidentId } = await request.json(); 
 
-    // Validate request
-    if (!incidents || !Array.isArray(incidents)) {
-      console.error('Invalid request: incidents array is missing or not an array');
-      return NextResponse.json(
-        { error: 'Invalid request: incidents array is required' },
-        { status: 400 }
-      );
+    // Validate request type
+    if (!type) {
+      return NextResponse.json({ error: 'Request type is required' }, { status: 400 });
     }
 
-    // If the number of incidents is too large, process in chunks
-    if (incidents.length > MAX_INCIDENTS_PER_CHUNK) {
-      console.log(`Processing ${incidents.length} incidents in chunks of ${MAX_INCIDENTS_PER_CHUNK}`);
-      
-      // Create a TransformStream for streaming the response
-      const stream = new TransformStream();
-      const writer = stream.writable.getWriter();
-      const encoder = new TextEncoder();
+    console.log(`Processing request type: ${type}`);
 
-      // Start processing in the background
-      (async () => {
-        try {
-          // Process incidents in chunks
-          const chunks = [];
-          for (let i = 0; i < incidents.length; i += MAX_INCIDENTS_PER_CHUNK) {
-            const chunk = incidents.slice(i, i + MAX_INCIDENTS_PER_CHUNK);
-            chunks.push(chunk);
-          }
-
-          // Process each chunk and combine results
-          const allInsights: string[][] = [];
-          for (const chunk of chunks) {
-            const chunkInsights = await generateInsights(chunk);
-            if (Array.isArray(chunkInsights)) {
-              allInsights.push(chunkInsights);
+    // Fetch incidents based on filters (only if needed by the type)
+    let incidents: CrimeIncident[] = [];
+    if (type === 'overview' || type === 'incident') { 
+        if (!filters) {
+            console.error('Invalid request: filters object is required for this type');
+            return NextResponse.json(
+              { error: 'Invalid request: filters object is required' },
+              { status: 400 }
+            );
+        }
+        incidents = await getFilteredIncidents(filters);
+        console.log(`Fetched ${incidents.length} incidents based on filters.`);
+    } else if (type === 'safety') {
+        // Safety tips might need the newsType from the first incident if filters are provided
+        // Or potentially accept newsType directly in the request body
+        // For simplicity, let's assume filters are passed and we use the first incident
+        if (filters) {
+            incidents = await getFilteredIncidents(filters);
+            if (incidents.length === 0) {
+                return NextResponse.json({ error: 'No incidents found for the provided filters to determine safety tips context.' }, { status: 404 });
             }
-          }
-
-          // Combine insights from all chunks
-          const combinedInsights = combineInsights(allInsights);
-
-          // Send the final response
-          await writer.write(encoder.encode(JSON.stringify({ insights: combinedInsights })));
-          await writer.close();
-        } catch (error) {
-          console.error('Error processing chunks:', error);
-          await writer.write(encoder.encode(JSON.stringify({ 
-            error: 'Error processing data chunks',
-            details: error instanceof Error ? error.message : String(error)
-          })));
-          await writer.close();
+        } else {
+            // Modification: Allow passing newsType directly for safety tips
+            const { newsType } = await request.json(); // Re-parse or adjust initial parse
+             if (!newsType) {
+                 return NextResponse.json({ error: 'Filters or newsType required for safety tips.' }, { status: 400 });
+             }
+             // We don't need the full incident list here if newsType is provided directly
         }
-      })();
-
-      // Return the streaming response
-      return new Response(stream.readable, {
-        headers: {
-          'Content-Type': 'application/json',
-          'Transfer-Encoding': 'chunked'
-        }
-      });
     }
 
-    // For smaller datasets, process normally
+    // Prepare data for analysis by adding categories (only if incidents were fetched)
+    let categorizedIncidents: CrimeIncident[] = [];
+    if (incidents.length > 0) {
+        categorizedIncidents = incidents.map(incident => ({
+            ...incident,
+            category: categorizeCrimeType(incident.newsType)
+        }));
+    }
+
     try {
       switch (type) {
         case 'overview':
+          // Generate overall insights from all incidents
           console.log('Generating overview insights...');
-          const insights = await generateInsights(incidents);
+          if (categorizedIncidents.length === 0) {
+              return NextResponse.json({ insights: [] }); // Return empty if no incidents match filters
+          }
+          const insights = await generateInsights(categorizedIncidents);
           console.log('Insights generated successfully');
           return NextResponse.json({ insights });
 
         case 'incident':
+          // Analyze a specific incident
           if (!incidentId) {
             return NextResponse.json(
               { error: 'Invalid request: incidentId is required for incident analysis' },
               { status: 400 }
             );
           }
-          const incident = incidents.find((inc: CrimeIncident) => inc.id === incidentId);
+          // Find the incident within the ALREADY filtered list
+          const incident = categorizedIncidents.find((inc: CrimeIncident) => inc.id === incidentId);
           if (!incident) {
             return NextResponse.json(
-              { error: 'Incident not found' },
+              { error: 'Incident not found within the filtered results' }, 
               { status: 404 }
             );
           }
@@ -105,14 +93,24 @@ export async function POST(request: Request) {
           return NextResponse.json({ analysis });
 
         case 'safety':
-          if (!incidents[0]?.newsType) {
+          // Option 1: Use newsType from first filtered incident
+          // Option 2: Expect newsType directly in request body
+          const { newsType: safetyNewsType } = await request.json(); // Re-parse or adjust initial parse
+
+          let typeForSafety = safetyNewsType;
+          if (!typeForSafety && incidents.length > 0) {
+             typeForSafety = incidents[0]?.newsType;
+          }
+
+          // Generate safety tips for a news type
+          if (!typeForSafety) {
             return NextResponse.json(
               { error: 'Invalid request: newsType is required for safety tips' },
               { status: 400 }
             );
           }
-          console.log('Generating safety tips for:', incidents[0].newsType);
-          const tips = await generateSafetyTips(incidents[0].newsType);
+          console.log('Generating safety tips for:', typeForSafety);
+          const tips = await generateSafetyTips(typeForSafety);
           return NextResponse.json({ tips });
 
         default:
@@ -142,47 +140,6 @@ export async function POST(request: Request) {
       { status: 500 }
     );
   }
-}
-
-// Helper function to combine insights from multiple chunks
-function combineInsights(chunkInsights: any[][]): string[] {
-  if (chunkInsights.length === 0) return [];
-  
-  // Initialize with the first chunk's insights
-  const combined = [...chunkInsights[0]];
-  
-  // Merge subsequent chunks
-  for (let i = 1; i < chunkInsights.length; i++) {
-    const chunk = chunkInsights[i];
-    for (let j = 0; j < chunk.length; j++) {
-      if (j < combined.length) {
-        // Merge insights for the same category
-        combined[j] = mergeInsightCategory(combined[j], chunk[j]);
-      } else {
-        // Add new categories
-        combined.push(chunk[j]);
-      }
-    }
-  }
-  
-  return combined;
-}
-
-// Helper function to merge insights from the same category
-function mergeInsightCategory(existing: string, newInsight: string): string {
-  // Split into lines and remove duplicates
-  const existingLines = existing.split('\n').filter(Boolean);
-  const newLines = newInsight.split('\n').filter(Boolean);
-  
-  // Use object keys to remove duplicates (compatible with older JS versions)
-  const uniqueLines = Object.keys(
-    [...existingLines, ...newLines].reduce((acc, line) => {
-      acc[line] = true;
-      return acc;
-    }, {} as Record<string, boolean>)
-  );
-  
-  return uniqueLines.join('\n');
 }
 
 // Helper function to categorize news types
