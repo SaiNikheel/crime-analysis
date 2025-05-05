@@ -1,11 +1,11 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '../auth/config';
-import { GoogleGenerativeAI } from '@google/generative-ai';
 import { CrimeIncident, DashboardFilters, InsightSummary } from '@/lib/types';
 import { generateInsights, analyzeIncident, generateSafetyTips } from '@/lib/gemini';
 
-const genAI = new GoogleGenerativeAI(process.env.GOOGLE_GEMINI_API_KEY!);
+// Maximum number of incidents to process at once
+const MAX_INCIDENTS_PER_CHUNK = 1000;
 
 export async function POST(request: Request) {
   try {
@@ -24,25 +24,67 @@ export async function POST(request: Request) {
       );
     }
 
-    // Prepare data for analysis by adding categories
-    const categorizedIncidents = incidents.map(incident => ({
-      ...incident,
-      category: categorizeCrimeType(incident.newsType)
-    }));
+    // If the number of incidents is too large, process in chunks
+    if (incidents.length > MAX_INCIDENTS_PER_CHUNK) {
+      console.log(`Processing ${incidents.length} incidents in chunks of ${MAX_INCIDENTS_PER_CHUNK}`);
+      
+      // Create a TransformStream for streaming the response
+      const stream = new TransformStream();
+      const writer = stream.writable.getWriter();
+      const encoder = new TextEncoder();
 
-    console.log('Processing request with type:', type);
+      // Start processing in the background
+      (async () => {
+        try {
+          // Process incidents in chunks
+          const chunks = [];
+          for (let i = 0; i < incidents.length; i += MAX_INCIDENTS_PER_CHUNK) {
+            const chunk = incidents.slice(i, i + MAX_INCIDENTS_PER_CHUNK);
+            chunks.push(chunk);
+          }
 
+          // Process each chunk and combine results
+          const allInsights = [];
+          for (const chunk of chunks) {
+            const chunkInsights = await generateInsights(chunk);
+            allInsights.push(chunkInsights);
+          }
+
+          // Combine insights from all chunks
+          const combinedInsights = combineInsights(allInsights);
+
+          // Send the final response
+          await writer.write(encoder.encode(JSON.stringify({ insights: combinedInsights })));
+          await writer.close();
+        } catch (error) {
+          console.error('Error processing chunks:', error);
+          await writer.write(encoder.encode(JSON.stringify({ 
+            error: 'Error processing data chunks',
+            details: error instanceof Error ? error.message : String(error)
+          })));
+          await writer.close();
+        }
+      })();
+
+      // Return the streaming response
+      return new Response(stream.readable, {
+        headers: {
+          'Content-Type': 'application/json',
+          'Transfer-Encoding': 'chunked'
+        }
+      });
+    }
+
+    // For smaller datasets, process normally
     try {
       switch (type) {
         case 'overview':
-          // Generate overall insights from all incidents
           console.log('Generating overview insights...');
-          const insights = await generateInsights(categorizedIncidents);
+          const insights = await generateInsights(incidents);
           console.log('Insights generated successfully');
           return NextResponse.json({ insights });
 
         case 'incident':
-          // Analyze a specific incident
           if (!incidentId) {
             return NextResponse.json(
               { error: 'Invalid request: incidentId is required for incident analysis' },
@@ -61,7 +103,6 @@ export async function POST(request: Request) {
           return NextResponse.json({ analysis });
 
         case 'safety':
-          // Generate safety tips for a news type
           if (!incidents[0]?.newsType) {
             return NextResponse.json(
               { error: 'Invalid request: newsType is required for safety tips' },
@@ -99,6 +140,40 @@ export async function POST(request: Request) {
       { status: 500 }
     );
   }
+}
+
+// Helper function to combine insights from multiple chunks
+function combineInsights(chunkInsights: any[][]): string[] {
+  if (chunkInsights.length === 0) return [];
+  
+  // Initialize with the first chunk's insights
+  const combined = [...chunkInsights[0]];
+  
+  // Merge subsequent chunks
+  for (let i = 1; i < chunkInsights.length; i++) {
+    const chunk = chunkInsights[i];
+    for (let j = 0; j < chunk.length; j++) {
+      if (j < combined.length) {
+        // Merge insights for the same category
+        combined[j] = mergeInsightCategory(combined[j], chunk[j]);
+      } else {
+        // Add new categories
+        combined.push(chunk[j]);
+      }
+    }
+  }
+  
+  return combined;
+}
+
+// Helper function to merge insights from the same category
+function mergeInsightCategory(existing: string, newInsight: string): string {
+  // Split into lines and remove duplicates
+  const existingLines = existing.split('\n').filter(Boolean);
+  const newLines = newInsight.split('\n').filter(Boolean);
+  const mergedLines = [...new Set([...existingLines, ...newLines])];
+  
+  return mergedLines.join('\n');
 }
 
 // Helper function to categorize news types

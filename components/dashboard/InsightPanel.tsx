@@ -93,6 +93,7 @@ export default function InsightPanel({ incidents }: InsightPanelProps) {
   const [error, setError] = useState<string | null>(null);
   const [errorDetails, setErrorDetails] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
+  const [progress, setProgress] = useState(0);
 
   useEffect(() => {
     generateAIInsights();
@@ -108,6 +109,7 @@ export default function InsightPanel({ incidents }: InsightPanelProps) {
     setLoading(true);
     setError(null);
     setErrorDetails(null);
+    setProgress(0);
 
     try {
       console.log('Fetching insights for', incidents.length, 'incidents');
@@ -123,35 +125,60 @@ export default function InsightPanel({ incidents }: InsightPanelProps) {
         }),
       });
 
-      const contentType = response.headers.get('content-type');
-      if (!contentType || !contentType.includes('application/json')) {
-        console.error('Invalid content type:', contentType);
-        throw new Error('Invalid response format from server');
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || `Server error: ${response.status}`);
       }
 
-      const data = await response.json();
-      
-      if (!response.ok) {
-        const errorMessage = data.error || `Server error: ${response.status}`;
-        if (errorMessage.includes('Gemini API is not enabled')) {
+      // Check if the response is streaming
+      const contentType = response.headers.get('content-type');
+      const isStreaming = response.headers.get('transfer-encoding') === 'chunked';
+
+      if (isStreaming) {
+        // Handle streaming response
+        const reader = response.body?.getReader();
+        if (!reader) {
+          throw new Error('Stream not available');
+        }
+
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          
+          // Try to parse complete JSON objects from the buffer
+          try {
+            const data = JSON.parse(buffer);
+            if (data.insights) {
+              setInsights(data.insights);
+              setProgress(100);
+            }
+            if (data.error) {
+              throw new Error(data.error);
+            }
+            buffer = '';
+          } catch (e) {
+            // If parsing fails, keep the buffer for the next chunk
+            continue;
+          }
+        }
+      } else {
+        // Handle regular JSON response
+        const data = await response.json();
+        if (data.error) {
           throw new Error(data.error);
         }
-        if (errorMessage.includes('Gemini API') || errorMessage.includes('generativelanguage.googleapis.com')) {
-          throw new Error('The AI service is not properly configured. Please check your API key and try again.');
+        if (!data.insights || !Array.isArray(data.insights)) {
+          throw new Error('Invalid response format from insights API');
         }
-        throw new Error(errorMessage);
+        setInsights(data.insights);
+        setProgress(100);
       }
 
-      if (data.error) {
-        throw new Error(data.error);
-      }
-
-      if (!data.insights || !Array.isArray(data.insights)) {
-        throw new Error('Invalid response format from insights API');
-      }
-
-      console.log('Successfully received insights:', data.insights.length);
-      setInsights(data.insights);
       setRetryCount(0); // Reset retry count on success
     } catch (error) {
       console.error('Error generating insights:', error);
@@ -177,35 +204,6 @@ export default function InsightPanel({ incidents }: InsightPanelProps) {
     setRetryCount(prev => prev + 1);
     generateAIInsights();
   };
-
-  // Helper function to parse insights
-  const parseInsightPoints = (insightText: string): string[] => {
-    if (!insightText) return [];
-    return insightText
-      .split('\n')
-      .filter(point => point.trim().length > 0);
-  };
-
-  if (loading) {
-    return (
-      <div className="bg-white rounded-lg shadow p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-semibold">AI-Powered Insights</h2>
-          <div className="text-sm text-gray-500">Analyzing data...</div>
-        </div>
-        <div className="animate-pulse space-y-4">
-          <div className="h-4 bg-gray-200 rounded w-3/4"></div>
-          <div className="h-4 bg-gray-200 rounded w-5/6"></div>
-          <div className="h-4 bg-gray-200 rounded w-2/3"></div>
-          <div className="h-4 bg-gray-200 rounded w-4/5"></div>
-          <div className="h-4 bg-gray-200 rounded w-3/4"></div>
-          <div className="mt-6 h-24 bg-gray-100 rounded flex items-center justify-center">
-            <div className="text-gray-400">Processing {incidents.length} incidents...</div>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="bg-white rounded-lg shadow p-6">
@@ -251,57 +249,40 @@ export default function InsightPanel({ incidents }: InsightPanelProps) {
             </button>
           )}
         </div>
-      ) : insights.length > 0 ? (
-        <div className="grid grid-cols-1 gap-8">
-          {insights.map((insight, index) => {
-            const points = parseInsightPoints(insight);
-            if (points.length === 0) return null;
-            
-            return (
-              <div 
-                key={index} 
-                className="bg-gray-50 rounded-lg p-6"
-              >
-                <div className="flex items-center gap-3 mb-5 pb-3 border-b border-gray-200">
-                  <span className="text-2xl">{SECTION_ICONS[index]}</span>
-                  <h3 className="text-xl font-medium text-gray-900">
-                    {SECTION_TITLES[index]}
-                  </h3>
-                </div>
-                <div className="space-y-4">
-                  {points.map((point, pointIndex) => (
-                    <div
-                      key={pointIndex}
-                      className="flex items-start gap-3 group"
-                    >
-                      <span className="text-blue-500 font-bold mt-1">→</span>
-                      <p className="text-gray-700 leading-relaxed">
-                        {point}
-                      </p>
-                    </div>
-                  ))}
-                </div>
+      ) : loading ? (
+        <div className="flex flex-col items-center justify-center py-8">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+          <span className="ml-3 text-gray-600">Generating insights...</span>
+          {progress > 0 && (
+            <div className="w-full max-w-md mt-4">
+              <div className="bg-gray-200 rounded-full h-2">
+                <div
+                  className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                  style={{ width: `${progress}%` }}
+                ></div>
               </div>
-            );
-          })}
+              <p className="text-sm text-gray-600 mt-2 text-center">
+                Processing {progress}% complete
+              </p>
+            </div>
+          )}
         </div>
       ) : (
-        <p className="text-gray-500 italic">
-          No insights available. Please load data to generate analysis.
-        </p>
+        <div className="space-y-6">
+          {insights.map((insight, index) => (
+            <div key={index} className="border rounded-lg p-4">
+              <h3 className="font-semibold mb-2">
+                {index === 0 && 'Key Patterns'}
+                {index === 1 && 'Risk Areas'}
+                {index === 2 && 'Anomaly Flags'}
+                {index === 3 && 'Recommendations'}
+                {index === 4 && 'Community Impact'}
+              </h3>
+              <div className="text-gray-700 whitespace-pre-wrap">{insight}</div>
+            </div>
+          ))}
+        </div>
       )}
-
-      <div className="mt-8 pt-4 border-t border-gray-100">
-        <p className="text-xs text-gray-500">
-          Insights are generated using AI analysis of {incidents.length} incidents. 
-          Last updated: {new Date().toLocaleTimeString()}
-        </p>
-        {retryCount > 0 && (
-          <p className="text-xs text-gray-400 mt-1">
-            Retry attempt {retryCount} of 3
-          </p>
-        )}
-      </div>
     </div>
   );
 } 
