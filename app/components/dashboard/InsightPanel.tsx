@@ -18,42 +18,20 @@ export default function InsightPanel({ incidents, filters }: InsightPanelProps) 
     const generateInsights = async () => {
       setLoading(true);
       try {
-        // Limit the data to the first 50 incidents
-        const limitedIncidents = incidents.slice(0, 50);
-
         const response = await fetch('/api/insights', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            incidents: limitedIncidents, // Send limited data
+            incidents,
             filters,
-            type: 'overview', // Explicitly set type for overview insights
           }),
         });
-
-        if (!response.ok) {
-          // Handle potential errors from the API (like the old size validation)
-          const errorData = await response.json().catch(() => ({})); // Try to parse error JSON, default to empty object
-          console.error('Error response from API:', response.status, errorData);
-          throw new Error(errorData.message || `API error: ${response.status}`);
-        }
-
         const data = await response.json();
-        // Assuming the API returns { insights: [...] } for the 'overview' type
-        setInsights(data.insights || []);
-
+        setInsights(data);
       } catch (error) {
         console.error('Error generating insights:', error);
-        // Display a user-friendly error message
-        setInsights([{
-          id: 'analysis-error',
-          title: 'Insight Generation Failed',
-          description: error instanceof Error ? error.message : 'Could not generate insights. The analysis might require fewer incidents or different filters. Please try again later.',
-          type: 'anomaly',
-          generatedAt: new Date()
-        }]);
       }
       setLoading(false);
     };

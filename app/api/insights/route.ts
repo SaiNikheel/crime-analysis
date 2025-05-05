@@ -12,9 +12,8 @@ export async function POST(request: Request) {
     // Log the start of the request
     console.log('Insights API request started');
 
-    // Intentionally using let for potential modification if needed later
-    let { incidents, type, incidentId, filters } = await request.json();
-    console.log(`Received request type: ${type}, Number of incidents received: ${incidents?.length || 0}`);
+    const { incidents, type, incidentId } = await request.json();
+    console.log(`Request type: ${type}, Number of incidents: ${incidents?.length || 0}`);
 
     // Validate request
     if (!incidents || !Array.isArray(incidents)) {
@@ -25,12 +24,6 @@ export async function POST(request: Request) {
       );
     }
 
-    // Optional: Explicitly slice on the server-side as a safeguard (if needed)
-    // if (incidents.length > 50) {
-    //   console.warn('Received more than 50 incidents, limiting to first 50 on server-side.');
-    //   incidents = incidents.slice(0, 50);
-    // }
-
     // Prepare data for analysis by adding categories
     const categorizedIncidents = incidents.map(incident => ({
       ...incident,
@@ -38,7 +31,6 @@ export async function POST(request: Request) {
     }));
 
     console.log('Processing request with type:', type);
-    console.log(`Processing ${categorizedIncidents.length} incidents for insights.`);
 
     try {
       switch (type) {
