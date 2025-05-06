@@ -10,6 +10,7 @@ import Link from 'next/link';
 const navigation = [
   { name: 'Dashboard', href: '/dashboard' },
   { name: 'Map', href: '/map' },
+  { name: 'About', href: '/about' },
 ];
 
 function classNames(...classes: string[]) {
