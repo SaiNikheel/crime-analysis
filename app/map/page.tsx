@@ -5,7 +5,8 @@ import { useSession } from 'next-auth/react';
 import dynamic from 'next/dynamic';
 import { CrimeIncident, DashboardFilters } from '@/lib/types';
 import FilterPanel from '@/components/dashboard/FilterPanel';
-import SearchBar from '@/components/map/SearchBar';
+import PeopleIncidentSearchBar from '../components/map/SearchBar';
+import LocationSearchBar from '../components/map/LocationSearchBar';
 import 'leaflet/dist/leaflet.css';
 
 // Default center coordinates for Telangana
@@ -28,6 +29,8 @@ export default function MapPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [incidentOpen, setIncidentOpen] = useState(false);
+  const [currentSearchTerm, setCurrentSearchTerm] = useState('');
+  const [activeTab, setActiveTab] = useState<'people' | 'location'>('people');
 
   useEffect(() => {
     const fetchData = async () => {
@@ -54,7 +57,22 @@ export default function MapPage() {
         );
         
         setIncidents(validIncidents);
-        setFilteredIncidents(validIncidents);
+        
+        // Apply current search term filter to the newly fetched data
+        if (currentSearchTerm) {
+          const term = currentSearchTerm.toLowerCase();
+          const searchFiltered = validIncidents.filter((inc: CrimeIncident) => 
+            inc.title?.toLowerCase().includes(term) ||
+            inc.description?.toLowerCase().includes(term) ||
+            inc.involvedPersonsRole?.toLowerCase().includes(term) ||
+            inc.location?.toLowerCase().includes(term) ||
+            inc.newsType?.toLowerCase().includes(term) ||
+            inc.keywords?.some((k: string) => k.toLowerCase().includes(term))
+          );
+          setFilteredIncidents(searchFiltered);
+        } else {
+          setFilteredIncidents(validIncidents);
+        }
 
         // Calculate center only if we have valid incidents and not manually set
         if (validIncidents.length > 0 && center === DEFAULT_CENTER) {
@@ -74,21 +92,39 @@ export default function MapPage() {
     };
 
     fetchData();
-  }, [filters]);
+  }, [filters, center]);
 
   const handleLocationSelect = (lat: number, lng: number) => {
+    console.log("Location selected:", lat, lng);
     setCenter([lat, lng]);
   };
 
-  const handlePersonSelect = (relatedIncidents: CrimeIncident[]) => {
-    setFilteredIncidents(relatedIncidents);
-    
-    // Calculate new center based on related incidents
-    if (relatedIncidents.length > 0) {
-      const avgLat = relatedIncidents.reduce((sum, inc) => sum + inc.latitude, 0) / relatedIncidents.length;
-      const avgLng = relatedIncidents.reduce((sum, inc) => sum + inc.longitude, 0) / relatedIncidents.length;
-      
-      if (!isNaN(avgLat) && !isNaN(avgLng)) {
+  const handleSearchSubmit = (term: string) => {
+    console.log('MapPage handleSearchSubmit called, term:', term);
+    setCurrentSearchTerm(term);
+    const searchTermLower = term.toLowerCase();
+
+    if (!searchTermLower) {
+      setFilteredIncidents(incidents);
+      return;
+    }
+
+    const searchFiltered = incidents.filter((inc: CrimeIncident) => 
+      inc.title?.toLowerCase().includes(searchTermLower) ||
+      inc.description?.toLowerCase().includes(searchTermLower) ||
+      inc.involvedPersonsRole?.toLowerCase().includes(searchTermLower) ||
+      inc.location?.toLowerCase().includes(searchTermLower) ||
+      inc.newsType?.toLowerCase().includes(searchTermLower) ||
+      inc.keywords?.some((k: string) => k.toLowerCase().includes(searchTermLower))
+    );
+
+    setFilteredIncidents(searchFiltered);
+    console.log('Filtered incidents count:', searchFiltered.length);
+
+    if (searchFiltered.length > 0) {
+      const avgLat = searchFiltered.reduce((sum, inc) => sum + (inc.latitude || 0), 0) / searchFiltered.length;
+      const avgLng = searchFiltered.reduce((sum, inc) => sum + (inc.longitude || 0), 0) / searchFiltered.length;
+      if (!isNaN(avgLat) && !isNaN(avgLng) && avgLat !== 0 && avgLng !== 0) {
         setCenter([avgLat, avgLng]);
       }
     }
@@ -100,18 +136,47 @@ export default function MapPage() {
       {!incidentOpen && (
         <div className="absolute inset-x-0 top-0 z-20 bg-white/80 backdrop-blur-sm shadow-md p-4">
           <div className="max-w-7xl mx-auto space-y-4">
-            <SearchBar 
-              onLocationSelect={handleLocationSelect}
-              onPersonSelect={handlePersonSelect}
-              incidents={incidents}
-            />
+            {/* Tab Buttons */}
+            <div className="flex border-b border-gray-200">
+              <button
+                onClick={() => setActiveTab('people')}
+                className={`px-4 py-2 text-sm font-medium ${
+                  activeTab === 'people' 
+                    ? 'border-b-2 border-indigo-500 text-indigo-600' 
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                People / Incidents
+              </button>
+              <button
+                onClick={() => setActiveTab('location')}
+                className={`ml-4 px-4 py-2 text-sm font-medium ${
+                  activeTab === 'location' 
+                    ? 'border-b-2 border-indigo-500 text-indigo-600' 
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                Location
+              </button>
+            </div>
+
+            {/* Tab Content */}
+            <div className="mt-2">
+              {activeTab === 'people' && (
+                 <PeopleIncidentSearchBar onSearchSubmit={handleSearchSubmit} />
+              )}
+              {activeTab === 'location' && (
+                 <LocationSearchBar onLocationSelect={handleLocationSelect} />
+              )}
+            </div>
+
             <FilterPanel filters={filters} onFilterChange={setFilters} />
           </div>
         </div>
       )}
 
       {/* Map Container */}
-      <div className={`h-full transition-all duration-300 ${incidentOpen ? 'pt-4' : 'pt-32'}`}>
+      <div className={`h-full transition-all duration-300 ${incidentOpen ? 'pt-4' : 'pt-[calc(4rem+1rem+2.5rem+2.5rem)]'}`}>
         {loading ? (
           <div className="absolute inset-0 bg-gray-50 flex items-center justify-center">
             <div className="text-gray-500">Loading map data...</div>
