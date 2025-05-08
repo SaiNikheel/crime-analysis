@@ -29,7 +29,7 @@ export default function Navigation() {
               <div className="flex">
                 <div className="flex flex-shrink-0 items-center">
                   <Link href="/" className="text-xl font-bold text-indigo-600">
-                    Crime Analysis
+                    News Analysis
                   </Link>
                 </div>
                 <div className="hidden sm:ml-6 sm:flex sm:space-x-8">

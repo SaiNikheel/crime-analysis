@@ -1,4 +1,4 @@
-# Crime Analysis Dashboard
+# Real-time news Analysis Dashboard
 
 A secure, production-ready web application for visualizing crime data and delivering insights to police and government administrators.
 

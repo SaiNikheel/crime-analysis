@@ -33,6 +33,13 @@ const teamMembers = [
     bio: 'Prithvi brings over 7 years of experience in production management and quality assurance. His expertise lies in ensuring the reliability and scalability of data-driven solutions, contributing significantly to the robustness of our news analysis platform.',
     linkedin: 'https://www.linkedin.com/in/prithvi-sripathi-74513910b/',
   },
+  {
+    name: 'Dinesh Reddy Palle',
+    role: 'AI/ML Intern',
+    photoUrl: '', // No photo provided, will use a placeholder
+    bio: 'Dinesh is an AI/ML Intern with a background in Artificial Intelligence and a keen interest in data science and real-time analytics. He is contributing to the development of a Crime Analysis AI system, using predictive modeling and data insights to support public safety initiatives.',
+    linkedin: 'https://www.linkedin.com/in/dineshpalle/', // LinkedIn URL not provided
+  },
 ];
 
 export default function AboutPage() {
